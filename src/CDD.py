@@ -7,8 +7,10 @@ from abc import ABC, abstractmethod
 from typing import Optional
 import polars as pl 
 import os 
+from pathlib import Path
 
 
+ROOT_FOLDER = input("The absolute path of the root folder")
 
 def data_retrieval_desc(target_name: str) -> pd.DataFrame:
     
@@ -47,10 +49,13 @@ def select_target(target_index:int, targets: pd.DataFrame = None) -> pd.DataFram
         raise KeyError("Column 'target_chembl_id' not found in targets DataFrame.")
     
     selected_target = targets.target_chembl_id[target_index] 
+    info_of_chembl = targets.loc[targets['target_chembl_id'] == selected_target, "target_chembl_id"] 
     
     #now we take a dataframe in a dataframe and return a dimension of it, this will be in the (n-1) dimension 
-    return selected_target #now the entire DataFrame is returned and we can use it for further processing.
+    return selected_target #now the entire DataFrame is returned and we can use it for further processing. 
+    #QUESTIONS - is it gonna come as an dictionary or a dataframe? - it will come as a series, we can convert it to a dataframe if needed.
 
+FILENAME = 1 #change this value at production
 
 class SQLEngine(ABC): #does this type of inheritance on python work?
     
@@ -115,35 +120,75 @@ class SQLiteEngine(SQLEngine):
 class DuckDBEngine(SQLEngine): 
     
     def __init__(self):
-        self.con = duckdb.connect()
+        self.conn = duckdb.connect()
         self.table_name = "data"
         self._columns = []
         self.selected_target_id = self.SELECTED_ID # why did we use self here 
         self.db_filename = self.db_filename
+        self.root_folder = ROOT_FOLDER
         
+   
     @classmethod #fun-concept --> decorator
-    def filename(cls):
-        
+    def rootfolder(cls):
         '''
         #this gives you the entire path from the root
              current_dir = os.getcwd()
                 return current_dir
         '''      
-        #current_directory 
-        absolute_path = os.getcwd()
-        current_folder = os.path.basename(absolute_path)
+        #getting the current directory
         
+        current_file_location = Path(__file__).resolve()
+        relative_path = current_file_location.relative_to(ROOT_FOLDER)
+        levels = len(relative_path) - 1
+        current_file_location.parents[levels]
+        return current_file_location        
+    
+    @classmethod
+    def current_folder(cls):
         
+        '''
+        This gives the current file
+        '''
+        currentfile = Path(__file__).resolve()
+        return currentfile
+            
         
-    def load_csv(self, filepath: str):
+    def create_and_load_csv(self):
         
         # DuckDB can query CSV directly, but we register it as a table for consistency
-        
+        for dirpath, dirname, files in ROOT_FOLDER.rglob("*"):
+            
+            if dirpath.name == "venv" or dirpath.name == ".git":
+                continue
+            
+            if dirpath.name == "database":
+                Path.mkdir("csv", exist_ok=True)
+                Path.mkdir("database", exist_ok=True)
+            else:
+                database = "database"
+                #parents=True, if the certain parent directory is not present, it will create it.
+                Path.makedir(database/"csv", parents = True, exist_ok = True)
+                Path.makedir(database/"db", parents = True, exist_ok = True)
+            
+            #now after the directory creation we have file-creation and fitting here - 
+            
+            '''
+            #Plan 
+            # 1. Get what is the file-name from the chembl, 
+            # 2.create a new file inside one of those folders according to the extension name they have
+            '''
+            
+            #1. getting the name from the chembl data-lake 
+            
+            
+            
         self.con.execute(f"CREATE TABLE {self.table_name} AS SELECT * FROM read_csv_auto('{filepath}')")
         res = self.con.execute(f"DESCRIBE {self.table_name}").fetchall()
         self._columns = [col[0] for col in res]
+        
 
     def create_database(self, csv_filepath:str, table_name:str):
+        
         activity = new_client.activity
         res = activity.filter(
             target_chembl_id=self.selected_target_id,
@@ -152,7 +197,7 @@ class DuckDBEngine(SQLEngine):
         )
         
         #folder creation for storing db files
-        os.makedirs('/database', exist_ok=True)
+        os.makedirs('database', exist_ok=True)
 
         #we use with statements here for connection basing. 
         
