@@ -124,10 +124,9 @@ class DuckDBEngine(SQLEngine):
     def __init__(self, connection = duckdb.connect(), targeted = None):
         self.conn = connection if connection else duckdb.connect()
         self.targeted = targeted if targeted else [None, (None, None)]
-    
-    #table-info
-    self.targetindex = self.targeted[0]
-    self.pref_name, organism = self.targeted[1]
+        #table-info
+        self.targetindex = targeted[0]
+        self.pref_name, self.organism = targeted[1]
     
     @classmethod #fun-concept --> decorator
     def rootfolder(cls):
@@ -158,36 +157,31 @@ class DuckDBEngine(SQLEngine):
     def create_and_load_csv(self):
         
         # DuckDB can query CSV directly, but we register it as a table for consistency
-        for dirpath, dirname, files in ROOT_FOLDER.rglob("*"):
-            
-            if dirpath.name == "venv" or dirpath.name == ".git":
+        for path in ROOT_FOLDER.rglob("*"):
+            if "venv" in path.parts or ".git" in path.parts:
                 continue
             
-            if dirpath.name == "database":
-                Path.mkdir("csv", exist_ok=True)
-                Path.mkdir("database", exist_ok=True)
+            if path.is_dir() and path.name == "database":
+                Path("csv").mkdir(exist_ok=True)
+                Path("database").mkdir(exist_ok=True)
+            
             else:
-                database = "database"
-                #parents=True, if the certain parent directory is not present, it will create it.
-                Path.makedir(database/"csv", parents = True, exist_ok = True)
-                Path.makedir(database/"db", parents = True, exist_ok = True)
+                database_dir = Path('database')
+                (database_dir / "csv").mkdir(parents=True, exist_ok=True)
+                (database_dir / "db").mkdir(parents=True, exist_ok=True)
+        
+        if not self.targetindex:
+            raise ValueError("Target CHEMBL_ID is missing from engine configuration")
             
-            #now after the directory creation we have file-creation and fitting here - 
-            
-            '''
-            #Plan 
-            # 1. Get what is the file-name from the chembl, --> created on top
-            # 2.create a new file inside one of those folders according to the extension name they have
-            '''
-            
-            activity = new_client.activity
-            
-            res = activity.filter(
-                target_chembl_id=targetindex,
-                standard_value__isnull=False,
-                standard_type__in=["IC50", "EC50", "Ki", "Kd" ]
-            )
-            
+        activity = new_client.activity
+        
+        res = activity.filter(
+            target_chembl_id=self.targetindex,
+            standard_value__isnull=False,
+            standard_type__in=["IC50", "EC50", "Ki", "Kd" ]
+        )
+        
+        #now it is actually in a dictionary format 
             
             
             
