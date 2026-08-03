@@ -62,8 +62,6 @@ def select_target(target_index:int, targets: pd.DataFrame = None) -> List:
     
     return consolidate
 
-FILENAME = 1 #change this value at production
-
 class SQLEngine(ABC):
     
     """
@@ -93,33 +91,6 @@ class SQLEngine(ABC):
         pass
     
 #TheSQL engine selector
-
-class SQLiteEngine(SQLEngine):
-    
-    def __init__(self):
-        self.conn = sqlite3.connect(':memory:')
-        self.table_name = "ReplicasePolyprotein"
-        self.columns = []
-        self.db_filename = "ReplicasePolyprotein.db"
-    
-    def load_csv(self, filepath:str):
-        df = pd.read_csv(filepath)
-        self._columns = df.columns.tolist()
-        df.to_sql(self.table_name, self.conn, index=False, if_exists='replace')
-    
-    def create_database(self, filepath):
-        return super().create_database(filepath)
-        
-    def query_check(self, sql:str) -> pd.DataFrame:
-        return pd.read_sql_query(sql, self.conn)
-    
-    def get_columns(self):
-        return self._columns
-    
-    def close(self):
-        self.conn.close()
-        
-        
 class DuckDBEngine(SQLEngine): 
     
     def __init__(self, connection = None, targeted = None):
@@ -158,19 +129,9 @@ class DuckDBEngine(SQLEngine):
     def create_and_load_csv(self):
         
         # DuckDB can query CSV directly, but we register it as a table for consistency
-        for path in ROOT_FOLDER.rglob("*"):
-            if "venv" in path.parts or ".git" in path.parts:
-                continue
-            
-            if path.is_dir() and path.name == "database":
-                Path("csv").mkdir(exist_ok=True)
-                Path("dotdb").mkdir(exist_ok=True)
-            
-            else:
-                database_dir = Path('database')
-                (database_dir / "csv").mkdir(parents=True, exist_ok=True)
-                (database_dir / "dotdb").mkdir(parents=True, exist_ok=True)
-                
+        
+        csv_folder_path = ROOT_FOLDER / "database" / "csv"
+        csv_folder_path.makedir(parent=True, exist_ok = True)
         
         if not self.targetindex:
             raise ValueError("Target CHEMBL_ID is missing from engine configuration")
@@ -184,37 +145,20 @@ class DuckDBEngine(SQLEngine):
         )
         
         csv_folder_path = ROOT_FOLDER / "database" / "csv"
-        db_folder_path = ROOT_FOLDER / "database" / "dotdb"
         
-        #now it is actually in a dictionary format - now we have to convert it into df and save as CSV 
+        #Dictionary to DataFrame
         df = pd.DataFrame.from_dict(res) 
+
+        #Filename for saving
         file_name = csv_folder_path / f"{self.pref_name}_{self.organism}.csv"
         
-        #checking the memory usage for loading/unloading into memory 
+        #Dataframe - CSV
         df.to_csv(file_name, index=False)
         
 
     def create_database(self, csv_filepath:str, table_name:str):
         
-        activity = new_client.activity
-        res = activity.filter(
-            target_chembl_id=self.targeted.__annotations__.get('target_chembl_id'),
-            standard_value__isnull=False,
-            standard_type__in=["IC50", "EC50", "Ki", "Kd" ]
-        )
-        
-        #folder creation for storing db files
-        os.makedirs('database', exist_ok=True)
-
-        #we use with statements here for connection basing. 
-        
-        with duckdb.connect(self.db_filename) as con:
-            query = f"CREATE TABLE IF NOT EXISTS {self.table_name} AS SELECT * FROM read_csv_auto('{csv_filepath}');"
-            conn.execute(query)
-        
-        print(f"Database created at {}")
-            
-        
+                
         #The CSV file is already made so we can proceed with the database conversion
         
         
@@ -227,39 +171,6 @@ class DuckDBEngine(SQLEngine):
 
     def close(self):
         self.con.close()
-    
-    
-    
-class PolarsEngine(SQLEngine):
-    def __init__(self):
-        self.ctx = None
-        self._columns = []
-
-    def load_csv(self, filepath: str):
-        
-        # Polars uses LazyFrames for efficiency
-        lf = pl.scan_csv(filepath)
-        self._columns = lf.collect_schema().names()
-        
-        # Create SQL Context and register the LazyFrame
-        self.ctx = pl.SQLContext(register_globals=False, eager=False)
-        self.ctx.register("data", lf)
-        
-    def create_database(self, filepath):
-            return super().create_database(filepath)
-
-    def query_check(self, sql: str) -> pd.DataFrame:
-        # Execute and convert to Pandas for consistent output
-        return self.ctx.execute(sql).collect().to_pandas()
-
-    def get_columns(self) -> list:
-        return self._columns
-    
-    def close(self):
-        if self.ctx:
-            self.ctx.close()
-            
-    
 
 def data_exploration():
     
