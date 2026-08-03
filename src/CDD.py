@@ -6,7 +6,6 @@ from chembl_webresource_client.new_client import new_client
 from abc import ABC, abstractmethod
 from typing import Optional
 import polars as pl 
-import os 
 from pathlib import Path
 
 
@@ -17,21 +16,27 @@ def data_retrieval_desc(target_name: str) -> pd.DataFrame:
     if 'new_client' not in globals():
         raise NameError("New_client is not defined. Please import or initialize it")
     
-    target = new_client.target
-    target_query = target.search(target_name) #searches for something like "corona_virus"
+    #converting into raw strings
+    target_name_str = str(target_name)
     
-    if isinstance(target_query, list) and len(target_query) > 0:
-        targets = pd.DataFrame.from_dict(target_query)
-    else:
-        targets = pd.DataFrame()
+    try:
+        target = new_client.target
+        target_query = target.search(target_name_str)
+        
+        if isinstance(target_query, list) and len(target_query) > 0:
+            target_query.Dataframe.from_dict(target_query)
+        else:
+            targets = pd.DataFrame()
     
+    except Exception as e:
+        raise RuntimeError("Failed to initialize target client") from e
+
     print(f"Target data retrieval for Target ID: {target_name} \n {targets}")
     
     return targets
 
     
-    
-def select_target(target_index:int, targets: pd.DataFrame = None) -> pd.DataFrame:
+def select_target(target_index:int, targets: pd.DataFrame = None) -> List:
 
     if not isinstance(target_index, int):
         raise TypeError("target_index must be an integer")
@@ -48,16 +53,17 @@ def select_target(target_index:int, targets: pd.DataFrame = None) -> pd.DataFram
     if 'target_chembl_id' not in targets.columns:
         raise KeyError("Column 'target_chembl_id' not found in targets DataFrame.")
     
-    selected_target = targets.target_chembl_id[target_index] 
-    info_of_chembl = targets.loc[targets['target_chembl_id'] == selected_target, "target_chembl_id"] 
+    selected_target = targets['target_chembl_id'].iloc[target_index]
+    info_of_chembl = targets.loc[targets['target_chembl_id'] == selected_target, ["pref_name", "organism"]]
     
-    #now we take a dataframe in a dataframe and return a dimension of it, this will be in the (n-1) dimension 
-    return selected_target #now the entire DataFrame is returned and we can use it for further processing. 
-    #QUESTIONS - is it gonna come as an dictionary or a dataframe? - it will come as a series, we can convert it to a dataframe if needed.
+    flattened = info_of_chembl.values.flatten().to_list()
+    consolidate = [selected_target, flattened]
+    
+    return consolidate
 
 FILENAME = 1 #change this value at production
 
-class SQLEngine(ABC): #does this type of inheritance on python work?
+class SQLEngine(ABC):
     
     """
     Abstract classes usually defines what each must actually do 
@@ -85,10 +91,6 @@ class SQLEngine(ABC): #does this type of inheritance on python work?
     def get_columns(self) -> list:
         pass
     
-
-
-    
-
 #TheSQL engine selector
 
 class SQLiteEngine(SQLEngine):
@@ -119,15 +121,14 @@ class SQLiteEngine(SQLEngine):
         
 class DuckDBEngine(SQLEngine): 
     
-    def __init__(self):
-        self.conn = duckdb.connect()
-        self.table_name = "data"
-        self._columns = []
-        self.selected_target_id = self.SELECTED_ID # why did we use self here 
-        self.db_filename = self.db_filename
-        self.root_folder = ROOT_FOLDER
-        
-   
+    def __init__(self, connection = duckdb.connect(), targeted = None):
+        self.conn = connection if connection else duckdb.connect()
+        self.targeted = targeted if targeted else [None, (None, None)]
+    
+    #table-info
+    self.targetindex = self.targeted[0]
+    self.pref_name, organism = self.targeted[1]
+    
     @classmethod #fun-concept --> decorator
     def rootfolder(cls):
         '''
@@ -141,13 +142,14 @@ class DuckDBEngine(SQLEngine):
         relative_path = current_file_location.relative_to(ROOT_FOLDER)
         levels = len(relative_path) - 1
         current_file_location.parents[levels]
+        
         return current_file_location        
     
     @classmethod
     def current_folder(cls):
         
         '''
-        This gives the current file
+        This gives the current file's path. 
         '''
         currentfile = Path(__file__).resolve()
         return currentfile
@@ -174,11 +176,18 @@ class DuckDBEngine(SQLEngine):
             
             '''
             #Plan 
-            # 1. Get what is the file-name from the chembl, 
+            # 1. Get what is the file-name from the chembl, --> created on top
             # 2.create a new file inside one of those folders according to the extension name they have
             '''
             
-            #1. getting the name from the chembl data-lake 
+            activity = new_client.activity
+            
+            res = activity.filter(
+                target_chembl_id=targetindex,
+                standard_value__isnull=False,
+                standard_type__in=["IC50", "EC50", "Ki", "Kd" ]
+            )
+            
             
             
             
@@ -191,7 +200,7 @@ class DuckDBEngine(SQLEngine):
         
         activity = new_client.activity
         res = activity.filter(
-            target_chembl_id=self.selected_target_id,
+            target_chembl_id=self.targeted.__annotations__.get('target_chembl_id'),
             standard_value__isnull=False,
             standard_type__in=["IC50", "EC50", "Ki", "Kd" ]
         )
