@@ -1,0 +1,197 @@
+{
+  "main": {
+    "id": "5d6e325d6dfe4cc1",
+    "type": "split",
+    "children": [
+      {
+        "id": "7f92ea26ee0a6ef2",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "73f990cd735d80d1",
+            "type": "leaf",
+            "state": {
+              "type": "empty",
+              "state": {},
+              "icon": "lucide-file",
+              "title": "New tab"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "de9d0961162b5b5d",
+    "type": "split",
+    "children": [
+      {
+        "id": "80d539e54685d893",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "1dc613ec931bb936",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "2496f88832df183d",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "903e846ff239bddf",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "28c1f16eef5af306",
+    "type": "split",
+    "children": [
+      {
+        "id": "8e24750b4f4edc7d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "933d4090668ec20d",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Excalidraw/DrugDiscoveryNotes.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for DrugDiscoveryNotes"
+            }
+          },
+          {
+            "id": "235844e98471898c",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Excalidraw/DrugDiscoveryNotes.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from DrugDiscoveryNotes"
+            }
+          },
+          {
+            "id": "cc371c897c05738e",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "c4771719f8141bec",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "2c5f39094878e284",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Excalidraw/DrugDiscoveryNotes.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of DrugDiscoveryNotes"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false,
+      "obsidian-excalidraw-plugin:New drawing": false
+    }
+  },
+  "active": "1dc613ec931bb936",
+  "lastOpenFiles": [
+    "Excalidraw/Drawing 2026-07-31 00.09.05.excalidraw.md",
+    "Excalidraw/Drawing 2026-07-29 21.13.15.excalidraw.md",
+    "Excalidraw/DrugDiscoveryNotes.md",
+    "Untitled.md",
+    "Pasted Image 20260723173235_462.png",
+    "Pasted Image 20260723172915_297.png",
+    "Pasted Image 20260723164240_640.png",
+    "Untitled.base",
+    "Excalidraw"
+  ]
+}

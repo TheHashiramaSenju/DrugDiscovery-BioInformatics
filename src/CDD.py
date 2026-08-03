@@ -7,9 +7,10 @@ from abc import ABC, abstractmethod
 from typing import Optional
 import polars as pl 
 from pathlib import Path
+import io
 
-
-ROOT_FOLDER = input("The absolute path of the root folder")
+ROOT_FOLDER_INTAKE =input("The absolute path of the root folder")
+ROOT_FOLDER =  Path(ROOT_FOLDER_INTAKE)
 
 def data_retrieval_desc(target_name: str) -> pd.DataFrame:
     
@@ -121,9 +122,9 @@ class SQLiteEngine(SQLEngine):
         
 class DuckDBEngine(SQLEngine): 
     
-    def __init__(self, connection = duckdb.connect(), targeted = None):
+    def __init__(self, connection = None, targeted = None):
         self.conn = connection if connection else duckdb.connect()
-        self.targeted = targeted if targeted else [None, (None, None)]
+        self.targeted = targeted if targeted else [None, [None, None]]
         #table-info
         self.targetindex = targeted[0]
         self.pref_name, self.organism = targeted[1]
@@ -163,12 +164,13 @@ class DuckDBEngine(SQLEngine):
             
             if path.is_dir() and path.name == "database":
                 Path("csv").mkdir(exist_ok=True)
-                Path("database").mkdir(exist_ok=True)
+                Path("dotdb").mkdir(exist_ok=True)
             
             else:
                 database_dir = Path('database')
                 (database_dir / "csv").mkdir(parents=True, exist_ok=True)
-                (database_dir / "db").mkdir(parents=True, exist_ok=True)
+                (database_dir / "dotdb").mkdir(parents=True, exist_ok=True)
+                
         
         if not self.targetindex:
             raise ValueError("Target CHEMBL_ID is missing from engine configuration")
@@ -181,13 +183,15 @@ class DuckDBEngine(SQLEngine):
             standard_type__in=["IC50", "EC50", "Ki", "Kd" ]
         )
         
-        #now it is actually in a dictionary format 
-            
-            
-            
-        self.con.execute(f"CREATE TABLE {self.table_name} AS SELECT * FROM read_csv_auto('{filepath}')")
-        res = self.con.execute(f"DESCRIBE {self.table_name}").fetchall()
-        self._columns = [col[0] for col in res]
+        csv_folder_path = ROOT_FOLDER / "database" / "csv"
+        db_folder_path = ROOT_FOLDER / "database" / "dotdb"
+        
+        #now it is actually in a dictionary format - now we have to convert it into df and save as CSV 
+        df = pd.DataFrame.from_dict(res) 
+        file_name = csv_folder_path / f"{self.pref_name}_{self.organism}.csv"
+        
+        #checking the memory usage for loading/unloading into memory 
+        df.to_csv(file_name, index=False)
         
 
     def create_database(self, csv_filepath:str, table_name:str):
