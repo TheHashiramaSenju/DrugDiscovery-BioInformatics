@@ -68,9 +68,8 @@ class SQLEngine(ABC):
     Abstract classes usually defines what each must actually do 
     Here - We are using ELT - Extract, Load, Transform methods for loading data into the database and then querying it. 
     """
-    
     @abstractmethod
-    def csv_conversion(self,):
+    def create_and_load_csv(self,):
         pass 
     
     @abstractmethod 
@@ -79,17 +78,11 @@ class SQLEngine(ABC):
         pass 
     
     #transformation - this is a placeholder for any transformation that might be needed before querying the data.
-    def transformation(self, df: pd.DataFrame) -> pd.DataFrame:
-        pass 
     
     @abstractmethod
     def query_check(self, sql:str) -> pd.DataFrame:
         pass 
-    
-    @abstractmethod
-    def get_columns(self) -> list:
-        pass
-    
+
 #TheSQL engine selector
 class DuckDBEngine(SQLEngine): 
     
@@ -98,38 +91,19 @@ class DuckDBEngine(SQLEngine):
         self.targeted = targeted if targeted else [None, [None, None]]
         #table-info
         self.targetindex = targeted[0]
-        self.pref_name, self.organism = targeted[1]
-    
-    @classmethod #fun-concept --> decorator
-    def rootfolder(cls):
-        '''
-        #this gives you the entire path from the root
-             current_dir = os.getcwd()
-                return current_dir
-        '''      
-        #getting the current directory
-        
-        current_file_location = Path(__file__).resolve()
-        relative_path = current_file_location.relative_to(ROOT_FOLDER)
-        levels = len(relative_path) - 1
-        current_file_location.parents[levels]
-        
-        return current_file_location        
+        self.pref_name, self.organism = targeted[1]    
     
     @classmethod
     def current_folder(cls):
-        
         '''
         This gives the current file's path. 
         '''
         currentfile = Path(__file__).resolve()
         return currentfile
             
-        
     def create_and_load_csv(self):
         
         # DuckDB can query CSV directly, but we register it as a table for consistency
-        
         csv_folder_path = ROOT_FOLDER / "database" / "csv"
         csv_folder_path.makedir(parent=True, exist_ok = True)
         
@@ -157,20 +131,13 @@ class DuckDBEngine(SQLEngine):
         
 
     def create_database(self, csv_filepath:str, table_name:str):
-        
-                
+         
         #The CSV file is already made so we can proceed with the database conversion
-        
-        
-    def query_check(self, sql: str) -> pd.DataFrame:
-        return self.con.execute(sql).df()
-
-    def get_columns(self) -> list:
-        return self._columns
+        if not Path(csv_filepath).exists:
+            raise f"{FileNotFoundError}\n Please create the file - troubleshooting --> run the create and load modules first"
+        else:
+             pass 
     
-
-    def close(self):
-        self.con.close()
 
 def data_exploration():
     
