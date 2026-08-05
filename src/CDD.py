@@ -129,15 +129,49 @@ class DuckDBEngine(SQLEngine):
         #Dataframe - CSV
         df.to_csv(file_name, index=False)
         
+        return file_name, file_name.name.split('.')[0]
 
-    def create_database(self, csv_filepath:str, table_name:str):
-         
-        #The CSV file is already made so we can proceed with the database conversion
-        if not Path(csv_filepath).exists:
-            raise f"{FileNotFoundError}\n Please create the file - troubleshooting --> run the create and load modules first"
-        else:
-             pass 
+    def create_database(self, csv_filepath:str, csv_filename:str):
+        
+        csv_filepath, csv_filename = self.create_and_load_csv()
+        db_folder_path = ROOT_FOLDER / "database" / "db"
+        parquet_folder_path = ROOT_FOLDER / "database" / "parquet"
+        
+        db_folder_path.makedir(parent=True, exist_ok=True)
+        parquet_folder_path.makedir(parent=True, exist_ok=True)
+        
+        
+        #The CSV file is already made so 
+        # we can proceed with the database conversion
     
+        if not Path(csv_filepath).exists():
+            raise f"{FileNotFoundError}\n Please create the file - troubleshooting --> run the create and load modules first"
+        
+
+        safe_table_name = f'"{csv_filename}"'
+        
+        creation_query = f"CREATE TABLE {safe_table_name} AS SELECT * FROM read_csv_auto('{Path(csv_filepath).as_posix()}')"
+        self.conn.execute(creation_query)
+        
+        #export 
+        #for the parquet files we have
+        target_path_parquet = db_folder_path / f"{csv_filename}.parquet"
+        export_query_pq = f"COPY {csv_filename} TO '{target_path_parquet.as_posix()}' (FORMAT PARQUET);"
+        self.conn.execute(export_query_pq)
+        
+        #for db-file 
+        target_path_database = db_folder_path / f"{csv_filename}.db"        
+        export_query_db = f"COPY {csv_filename} to '{target_path_database.as_posix()}' (FROM PARQUET)"
+        self.conn.execute(export_query_db)  
+        
+        self.conn.execute(f"ATTACH '{target_path_database.as_posix()}' AS disk_db;")
+        self.conn.execute(f"CREATE TABLE disk_db.{safe_table_name} AS SELECT * FROM {safe_table_name};")
+        
+        self.conn.execute("DETACH disk_db;")
+        print(f"   - Parquet: {target_path_parquet}")
+        print(f"   - DB File: {target_path_database}")
+        
+            
 
 def data_exploration():
     
@@ -145,4 +179,8 @@ def data_exploration():
     Made to actually explore data and gether insights about the data and its nature
     Can also be seen in Data-Wrangler, yet this seems to build more intuition 
     '''
+    #internal function referencing ! 
+    #class to class referneing
+    #class to function referencing
+    #function to class referenicng and passing
     
