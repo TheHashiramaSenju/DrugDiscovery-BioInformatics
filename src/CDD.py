@@ -9,9 +9,6 @@ import polars as pl
 from pathlib import Path
 import io
 
-ROOT_FOLDER_INTAKE =input("The absolute path of the root folder")
-ROOT_FOLDER =  Path(ROOT_FOLDER_INTAKE)
-
 def data_retrieval_desc(target_name: str) -> pd.DataFrame:
     
     if 'new_client' not in globals():
@@ -23,9 +20,11 @@ def data_retrieval_desc(target_name: str) -> pd.DataFrame:
     try:
         target = new_client.target
         target_query = target.search(target_name_str)
-        
-        if isinstance(target_query, list) and len(target_query) > 0:
-            target_query.Dataframe.from_dict(target_query)
+
+
+        if  len(target_query) > 0: #there are 2 problems in data handling here --> 1. forever waiting in searching ; error when unknow values have been put
+            targets = pd.DataFrame.from_dict(target_query)
+            print(len(targets))
         else:
             targets = pd.DataFrame()
     
@@ -34,10 +33,13 @@ def data_retrieval_desc(target_name: str) -> pd.DataFrame:
 
     print(f"Target data retrieval for Target ID: {target_name} \n {targets}")
     
+    print(f"Retrieved {len(targets)} targets for the target name '{target_name}'")
+    print(targets[['target_chembl_id', 'pref_name', 'organism']])
+    
     return targets
 
     
-def select_target(target_index:int, targets: pd.DataFrame = None) -> List:
+def select_target(target_index:int, targets: pd.DataFrame = None) -> list:
 
     if not isinstance(target_index, int):
         raise TypeError("target_index must be an integer")
@@ -69,7 +71,7 @@ class SQLEngine(ABC):
     Here - We are using ELT - Extract, Load, Transform methods for loading data into the database and then querying it. 
     """
     @abstractmethod
-    def create_and_load_csv(self,):
+    def create_and_load_csv(self):
         pass 
     
     @abstractmethod 
@@ -82,6 +84,8 @@ class SQLEngine(ABC):
     @abstractmethod
     def query_check(self, sql:str) -> pd.DataFrame:
         pass 
+    
+
 
 #TheSQL engine selector
 class DuckDBEngine(SQLEngine): 
@@ -170,17 +174,18 @@ class DuckDBEngine(SQLEngine):
         self.conn.execute("DETACH disk_db;")
         print(f"   - Parquet: {target_path_parquet}")
         print(f"   - DB File: {target_path_database}")
-        
-            
 
-def data_exploration():
+
+if __name__ == "__main__":
     
-    '''
-    Made to actually explore data and gether insights about the data and its nature
-    Can also be seen in Data-Wrangler, yet this seems to build more intuition 
-    '''
-    #internal function referencing ! 
-    #class to class referneing
-    #class to function referencing
-    #function to class referenicng and passing
+    print("Welcome on working with chembl data - please provide the target name to retrieve the data")
+    
+    #ROOT_FOLDER_INTAKE = input("The absolute path of the root folder")
+    ROOT_FOLDER =  Path(__file__).parent.parent
+    
+    target_name = str(input("Enter the target name"))
+    
+    data_retrieval_desc(target_name=target_name)
+    
+    
     
