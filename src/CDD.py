@@ -22,7 +22,15 @@ def data_retrieval_desc(target_name: str) -> pd.DataFrame:
         target_query = target.search(target_name_str)
 
 
-        if  len(target_query) > 0: #there are 2 problems in data handling here --> 1. forever waiting in searching ; error when unknow values have been put
+        #there are 2 problems in data handling here --> 1. forever waiting in searching ; error when unknow values have been put
+        
+        
+        '''
+        Problems faced - HTTP error from the source; Bad request Error. 
+        Len error in len(target_query) - __len__ not getting referrenced --> throws errors
+        '''
+        
+        if  len(target_query) > 0:
             targets = pd.DataFrame.from_dict(target_query)
             print(len(targets))
         else:
