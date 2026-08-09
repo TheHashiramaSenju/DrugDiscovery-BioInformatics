@@ -9,10 +9,8 @@ import polars as pl
 from pathlib import Path
 import io
 
-ROOT_FOLDER_INTAKE =input("The absolute path of the root folder")
-ROOT_FOLDER =  Path(ROOT_FOLDER_INTAKE)
-
 def data_retrieval_desc(target_name: str) -> pd.DataFrame:
+    
     
     if 'new_client' not in globals():
         raise NameError("New_client is not defined. Please import or initialize it")
@@ -23,9 +21,10 @@ def data_retrieval_desc(target_name: str) -> pd.DataFrame:
     try:
         target = new_client.target
         target_query = target.search(target_name_str)
-        
-        if isinstance(target_query, list) and len(target_query) > 0:
-            target_query.Dataframe.from_dict(target_query)
+
+        #there are 2 problems in data handling here --> 1. forever waiting in searching ; error when unknow values have been put
+        if len(target_query) > 0: 
+            targets = pd.DataFrame.from_dict(target_query)
         else:
             targets = pd.DataFrame()
     
@@ -37,7 +36,7 @@ def data_retrieval_desc(target_name: str) -> pd.DataFrame:
     return targets
 
     
-def select_target(target_index:int, targets: pd.DataFrame = None) -> List:
+def select_target(target_index:int, targets: pd.DataFrame = None):
 
     if not isinstance(target_index, int):
         raise TypeError("target_index must be an integer")
@@ -183,4 +182,12 @@ def data_exploration():
     #class to class referneing
     #class to function referencing
     #function to class referenicng and passing
+    #ROOT_FOLDER_INTAKE =input("The absolute path of the root folder")
+    pass
+
+if __name__ == "__main__": 
+    ROOT_FOLDER =  Path(__file__).parent.parent 
+    target_name = str(input("Enter the target name please"))
+    d_retrieval_desc = data_retrieval_desc(target_name=target_name) 
     
+    s_target = select_target(1, d_retrieval_desc)
