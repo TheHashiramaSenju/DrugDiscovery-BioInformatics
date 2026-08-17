@@ -23,10 +23,7 @@ def data_retrieval_desc(target_name: str) -> pd.DataFrame:
         target_query = target.search(target_name_str)
 
         #there are 2 problems in data handling here --> 1. forever waiting in searching ; error when unknow values have been put
-        if len(target_query) > 0: 
-            targets = pd.DataFrame.from_dict(target_query)
-        else:
-            targets = pd.DataFrame()
+        targets = pd.DataFrame.from_dict(target_query)
     
     except Exception as e:
         raise RuntimeError("Failed to initialize target client") from e
@@ -44,8 +41,8 @@ def select_target(target_index:int, targets: pd.DataFrame = None):
     if targets is None:
         
         raise ValueError("You must provide either a 'targets' DataFrame or a 'target_id' to fetch.")
-    else:
-        targets = data_retrieval_desc(target_index)
+    #else:
+    #   targets = data_retrieval_desc(target_index) #problem lied here --> function calling and wrong input (giving search length too less)
     
     if targets.empty:
         raise ValueError("The targets DataFrame is empty. Cannot select an index.")
@@ -53,14 +50,21 @@ def select_target(target_index:int, targets: pd.DataFrame = None):
     if 'target_chembl_id' not in targets.columns:
         raise KeyError("Column 'target_chembl_id' not found in targets DataFrame.")
     
-    selected_target = targets['target_chembl_id'].iloc[target_index]
+    selected_row = targets.iloc[target_index]
+    selected_target = selected_target['target_chembl_id']
+    pref_name = str(selected_row.get('pref_name', 'UnknownTarget')) 
+    organism = str(selected_row.get('organism', 'UnknownOrganism'))
+    
+    #replace spaces and punctuations with underscores 
+    clean_name = "".join(c if c.isalnum() else "_" for c in pref_name)
+    clean_org = "".join(c if c.isalnum() else "_" for c in organism) 
+    
     info_of_chembl = targets.loc[targets['target_chembl_id'] == selected_target, ["pref_name", "organism"]]
     
-    flattened = info_of_chembl.values.flatten().to_list()
+    flattened = info_of_chembl.values.flatten().tolist()
     consolidate = [selected_target, flattened]
-    
-    return consolidate
 
+    return consolidate
 class SQLEngine(ABC):
     
     """
@@ -68,24 +72,24 @@ class SQLEngine(ABC):
     Here - We are using ELT - Extract, Load, Transform methods for loading data into the database and then querying it. 
     """
     @abstractmethod
-    def create_and_load_csv(self,):
+    def create_and_load_csv(self):
         pass 
     
     @abstractmethod 
     #we have also included the loading of CSV in this same method, implemeneted to all the classes
-    def create_database(self, filepath:str):
+    def create_database(self):
         pass 
     
     #transformation - this is a placeholder for any transformation that might be needed before querying the data.
     
     @abstractmethod
-    def query_check(self, sql:str) -> pd.DataFrame:
+    def query_check(self):
         pass 
 
 #TheSQL engine selector
 class DuckDBEngine(SQLEngine): 
     
-    def __init__(self, connection = None, targeted = None):
+    def __init__(self, connection, targeted):
         self.conn = connection if connection else duckdb.connect()
         self.targeted = targeted if targeted else [None, [None, None]]
         #table-info
@@ -104,7 +108,7 @@ class DuckDBEngine(SQLEngine):
         
         # DuckDB can query CSV directly, but we register it as a table for consistency
         csv_folder_path = ROOT_FOLDER / "database" / "csv"
-        csv_folder_path.makedir(parent=True, exist_ok = True)
+        csv_folder_path.mkdir(parents=True, exist_ok = True)
         
         if not self.targetindex:
             raise ValueError("Target CHEMBL_ID is missing from engine configuration")
@@ -114,8 +118,10 @@ class DuckDBEngine(SQLEngine):
         res = activity.filter(
             target_chembl_id=self.targetindex,
             standard_value__isnull=False,
-            standard_type__in=["IC50", "EC50", "Ki", "Kd" ]
-        )
+            standard_type__in=["IC50" ]
+        ).only([
+            "molecule_chembl_id", "canonical_smiles", "standard_value", "standard_units", "assay_chembl_id", "target_chembl_id"
+        ])
         
         csv_folder_path = ROOT_FOLDER / "database" / "csv"
         
@@ -130,14 +136,14 @@ class DuckDBEngine(SQLEngine):
         
         return file_name, file_name.name.split('.')[0]
 
-    def create_database(self, csv_filepath:str, csv_filename:str):
+    def create_database(self):
         
         csv_filepath, csv_filename = self.create_and_load_csv()
         db_folder_path = ROOT_FOLDER / "database" / "db"
         parquet_folder_path = ROOT_FOLDER / "database" / "parquet"
         
-        db_folder_path.makedir(parent=True, exist_ok=True)
-        parquet_folder_path.makedir(parent=True, exist_ok=True)
+        db_folder_path.mkdir(parents=True, exist_ok=True)
+        parquet_folder_path.mkdir(parents=True, exist_ok=True)
         
         
         #The CSV file is already made so 
@@ -169,8 +175,10 @@ class DuckDBEngine(SQLEngine):
         self.conn.execute("DETACH disk_db;")
         print(f"   - Parquet: {target_path_parquet}")
         print(f"   - DB File: {target_path_database}")
-        
-            
+    
+    def query_check(self):
+        query = f"SELECT * FROM {self.pref_name}_{self.organism} LIMIT 5;"
+        return self.conn.execute(query).fetchdf()
 
 def data_exploration():
     
@@ -186,8 +194,14 @@ def data_exploration():
     pass
 
 if __name__ == "__main__": 
+    
     ROOT_FOLDER =  Path(__file__).parent.parent 
     target_name = str(input("Enter the target name please"))
     d_retrieval_desc = data_retrieval_desc(target_name=target_name) 
     
     s_target = select_target(1, d_retrieval_desc)
+    
+    engine = DuckDBEngine(duckdb.connect(), s_target)
+    engine.create_and_load_csv()
+    engine.create_database()
+    engine.query_check()
