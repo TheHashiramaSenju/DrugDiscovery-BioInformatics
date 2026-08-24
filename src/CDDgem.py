@@ -6,6 +6,8 @@ from typing import Optional
 from chembl_webresource_client.new_client import new_client
 import duckdb
 import pandas as pd
+from rdkit import Chem 
+from rdkit.Chem.SaltRemover import SaltRemover
 
 
 def data_retrieval_desc(target_name: str) -> pd.DataFrame:
@@ -149,6 +151,8 @@ class DuckDBEngine(SQLEngine):
 
 class DataCleaning:
     
+    remover = SaltRemover()
+    
     def __init__(self, path: Path):
         self.path = Path(path)
         self.mismatch = []
@@ -182,7 +186,53 @@ class DataCleaning:
     If you hand it a list of names or numbers, it tries to fetch columns.
     
     '''
+        #helper function for entire dataframe
+    @staticmethod
+    def stip_salt(smiles_string):
     
+        if pd.isna(smiles_string):
+            return None 
+        
+        mol = Chem.MolFromSmiles(smiles_string)
+        
+        if mol is None:
+            return None
+        
+        #now we will remove those salts 
+        stripped_mol = DataCleaning.remover.StripMol(mol)
+        return Chem.MolToSmiles(stripped_mol)
+    
+    @staticmethod
+    def InChIConversion(mol):
+        
+        if pd.isna():
+            return None
+        
+        mol = Chem.MolFromSmiles(mol)
+        
+        if mol in None:
+            return None
+        
+        InChI = Chem.MolToInchi(mol)
+        
+        return InChI
+    
+    @staticmethod
+    def InChIKeyConversion(mol):
+        
+        if pd.isna(mol):
+            return None 
+        
+        mol = Chem.MolFromSmiles(mol)
+        
+        if mol is None:
+            return None 
+        
+        inchi = Chem.MolToInchi(mol)
+        inchikey = Chem.InchiToInchiKey(inchi)
+        
+        return inchikey
+        
     
     def null_and_columnhandler(self, path: Path) -> Path:
         
@@ -190,7 +240,10 @@ class DataCleaning:
         
         dataset_clean = dataset_clean.dropna(axis=1, how="all")
         
-        cols_to_drop = ["qudt_units", "uo_units", "toid", "document_chembl_id", "_journal", "_year", "assay_descriptions", "activity_comment", "upper_value"]
+        cols_to_drop = ["qudt_units", "uo_units", "toid", "document_chembl_id", "_journal", "_year", 
+                        "assay_descriptions", "activity_comment", "upper_value", 
+                        "molecule_pref_name"]
+        
         existing_cols_to_drop = [col for col in cols_to_drop if col in dataset_clean.columns]
         
         if existing_cols_to_drop:
@@ -199,8 +252,12 @@ class DataCleaning:
         
         # on inspection we found out very sparse missing values in these two columns
         
-        targets_data_validity_comment = ["Values appear to be an order of magnitude different from previously reported, so units may be incorrect", "Potential transcription error"]
-        targets_data_validity_desc = ["Values for this activity type are unusually large/small, so may not be accurate", "Values appear to be an order of magnitude different from previously reported, so units may be incorrect"]
+        targets_data_validity_comment = ["Values appear to be an order of magnitude different from previously reported, so units may be incorrect", 
+                                         "Potential transcription error"]
+        
+        targets_data_validity_desc = ["Values for this activity type are unusually large/small, so may not be accurate", 
+                                      "Values appear to be an order of magnitude different from previously reported, so units may be incorrect"]
+        
         
         mask_1 = dataset_clean["data_validity_comment"].isin(targets_data_validity_comment)
         mask_2 = dataset_clean["data_validity_description"].isin(targets_data_validity_desc)
@@ -221,11 +278,30 @@ class DataCleaning:
         dataset_clean.to_csv(output_path, index=False)
         print(f"Cleaned CSV saved successfully: {output_path}")
         
-        
         return output_path
+
+    
+    def molecule_standardization(self, cleaned_csv_path : Path = null_and_columnhandler) -> pd.DataFrame:
+        
+        df = pd.read_csv(cleaned_csv_path)
+        df["cleaned_smiles"] = df["canonical_smiles"].apply(DataCleaning.stip_salt)
+        
+        df.drop("canonical_smiles", axis=1, inplace=True)
+        
+        #now creating a InChI key 
+        df["InChI"] = df["cleaned_smiles"].apply(DataCleaning.InChIConversion)
+        df["InChIkey"] = df["cleaned_smiles"].apply(DataCleaning.InChIKeyConversion)
+        
+        file_name = cleaned_csv_path
+        
+        df.to_csv(f"{file_name}")
+        
+        
+    def duplicate_resolution(self):
+        pass 
+        
     
     
-            
 if __name__ == "__main__":
     
     ROOT_FOLDER = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
@@ -249,4 +325,4 @@ if __name__ == "__main__":
     
     dc = DataCleaning(path=csv_path)
     cleaned_csv= dc.null_and_columnhandler(csv_path)
-    
+    dc.molecule_standardization(cleaned_csv_path=cleaned_csv)

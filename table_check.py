@@ -11,4 +11,12 @@ print(reader["data_validity_comment"].value_counts(dropna=False))
 print()
 print()
 
-reader = 
+'''
+Dropping technique: 
+
+1. Find the duplicates create into a dataframe and impute with mean when we have different lab / setting 
+2. Then drop the duplicates that has no bias 
+
+
+
+'''
