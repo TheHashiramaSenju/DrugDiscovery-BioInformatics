@@ -18,5 +18,11 @@ Dropping technique:
 2. Then drop the duplicates that has no bias 
 
 
+3. Standardize the units and relationship modelling --
+1. Generate pIC50 for all the molecules -- Done
+2. Calculate variance for all of them 
+4. Ligand efficency - de-dictionary and small reasearch 
+5. Final column drop off 
+6. Encoding of features
 
 '''

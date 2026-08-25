@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 import re
 from typing import Optional
-
+import numpy as np
 from chembl_webresource_client.new_client import new_client
 import duckdb
 import pandas as pd
@@ -128,7 +128,7 @@ class DuckDBEngine(SQLEngine):
         safe_table = f'"{table_name}"'
         posix_csv = csv_filepath.as_posix()
 
-        print("\nBuilding DuckDB tables and persistent storage...")
+        print("\nBuilding DuckDB tables and persistent storage")
 
         self.conn.execute(f"CREATE OR REPLACE TABLE {safe_table} AS SELECT * FROM read_csv_auto('{posix_csv}');")
 
@@ -186,7 +186,7 @@ class DataCleaning:
     If you hand it a list of names or numbers, it tries to fetch columns.
     
     '''
-        #helper function for entire dataframe
+    #helper function for entire dataframe
     @staticmethod
     def stip_salt(smiles_string):
     
@@ -203,37 +203,23 @@ class DataCleaning:
         return Chem.MolToSmiles(stripped_mol)
     
     @staticmethod
-    def InChIConversion(mol):
+    def InChIKeyConversion(smiles_string):
         
-        if pd.isna():
-            return None
-        
-        mol = Chem.MolFromSmiles(mol)
-        
-        if mol in None:
-            return None
-        
-        InChI = Chem.MolToInchi(mol)
-        
-        return InChI
-    
-    @staticmethod
-    def InChIKeyConversion(mol):
-        
-        if pd.isna(mol):
+        if pd.isna(smiles_string):
             return None 
         
-        mol = Chem.MolFromSmiles(mol)
+        mol = Chem.MolFromSmiles(smiles_string)
         
         if mol is None:
             return None 
-        
-        inchi = Chem.MolToInchi(mol)
-        inchikey = Chem.InchiToInchiKey(inchi)
+    
+        inchikey = Chem.MolToInchiKey(mol)
         
         return inchikey
         
-    
+        #NOTE : INCHI and INCHI key -> INCHI is too BIG and hence INCHI key we will be using for database wide comparisons and analysis
+        
+            
     def null_and_columnhandler(self, path: Path) -> Path:
         
         dataset_clean = self.loading_csv(path)
@@ -250,28 +236,21 @@ class DataCleaning:
             dataset_clean = dataset_clean.drop(columns=existing_cols_to_drop)
             print(f"Dropped unneeded columns: {existing_cols_to_drop}")
         
-        # on inspection we found out very sparse missing values in these two columns
-        
         targets_data_validity_comment = ["Values appear to be an order of magnitude different from previously reported, so units may be incorrect", 
                                          "Potential transcription error"]
         
         targets_data_validity_desc = ["Values for this activity type are unusually large/small, so may not be accurate", 
                                       "Values appear to be an order of magnitude different from previously reported, so units may be incorrect"]
         
-        
         mask_1 = dataset_clean["data_validity_comment"].isin(targets_data_validity_comment)
         mask_2 = dataset_clean["data_validity_description"].isin(targets_data_validity_desc)
         
-        # AI stub
         combined_bad_rows = mask_1 | mask_2
         rows_to_drop = dataset_clean[combined_bad_rows].index
         dataset_clean = dataset_clean.drop(rows_to_drop, axis = 0)
-        #AI stub completed 
         
-        #now dropping the left out columns
         dataset_clean = dataset_clean.drop(columns=["data_validity_comment", "data_validity_description"], axis=1)
         
-        #my stub
         clean_filename = self.get_clean_filename()
         output_path = path.parent / f"{clean_filename}_cleaned.csv"
         
@@ -281,7 +260,9 @@ class DataCleaning:
         return output_path
 
     
-    def molecule_standardization(self, cleaned_csv_path : Path = null_and_columnhandler) -> pd.DataFrame:
+    def molecule_standardization(self, cleaned_csv_path: Path) -> pd.DataFrame:
+        # Notice how there is NO call to null_and_columnhandler here anymore!
+        # This function strictly assumes it is receiving an already cleaned file.
         
         df = pd.read_csv(cleaned_csv_path)
         df["cleaned_smiles"] = df["canonical_smiles"].apply(DataCleaning.stip_salt)
@@ -289,18 +270,41 @@ class DataCleaning:
         df.drop("canonical_smiles", axis=1, inplace=True)
         
         #now creating a InChI key 
-        df["InChI"] = df["cleaned_smiles"].apply(DataCleaning.InChIConversion)
         df["InChIkey"] = df["cleaned_smiles"].apply(DataCleaning.InChIKeyConversion)
         
-        file_name = cleaned_csv_path
+        df.to_csv(cleaned_csv_path, index=False)
+        print(f"Standardized CSV saved successfully: {cleaned_csv_path}")
         
-        df.to_csv(f"{file_name}")
+        return df  
         
         
-    def duplicate_resolution(self):
-        pass 
+    def basic_duplicate_resolution(self, csv_path):
         
+        dataframe = pd.read_csv(csv_path)
+        #clearing already flagged duplicates --> Toll gate analogy
+        dataframe.drop(dataframe[dataframe["suspected_duplicate"] == 1].index, inplace=True, index=False )
     
+    def IC50Standardization(self, dataframe): 
+        pass   
+
+    def IC50toPIC50Conv(self, dataframe = molecule_standardization) -> pd.DataFrame: 
+        
+        conditions = [
+            (dataframe["type"] == "IC50") & (dataframe["value"] < 0),
+            (dataframe["type"] == "Log IC50"),
+            (dataframe["type"] == "pIC50"), 
+            (dataframe["type"] == "Log IC50(nM)")
+        ]
+        choices = [
+            -1 * np.log10(dataframe["value"] * 10 ** -9),
+            -1 * dataframe["value"],
+            dataframe["value"],
+            dataframe["value"]
+        ]
+        
+        dataframe["PIC50"] = np.select(conditions, choices, default=dataframe["value"])
+        
+        return dataframe
     
 if __name__ == "__main__":
     
@@ -324,5 +328,169 @@ if __name__ == "__main__":
     print(preview_df)
     
     dc = DataCleaning(path=csv_path)
-    cleaned_csv= dc.null_and_columnhandler(csv_path)
-    dc.molecule_standardization(cleaned_csv_path=cleaned_csv)
+    clean_path_output = dc.null_and_columnhandler(path=csv_path)
+    dc.molecule_standardization(cleaned_csv_path=clean_path_output)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
