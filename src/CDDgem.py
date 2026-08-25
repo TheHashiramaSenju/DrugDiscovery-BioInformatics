@@ -228,7 +228,7 @@ class DataCleaning:
         
         cols_to_drop = ["qudt_units", "uo_units", "toid", "document_chembl_id", "_journal", "_year", 
                         "assay_descriptions", "activity_comment", "upper_value", 
-                        "molecule_pref_name"]
+                        "molecule_pref_name", "type", "units", "value","document_journal", "document_year"]
         
         existing_cols_to_drop = [col for col in cols_to_drop if col in dataset_clean.columns]
         
@@ -277,34 +277,84 @@ class DataCleaning:
         
         return df  
         
-        
+    
     def basic_duplicate_resolution(self, csv_path):
         
         dataframe = pd.read_csv(csv_path)
         #clearing already flagged duplicates --> Toll gate analogy
         dataframe.drop(dataframe[dataframe["suspected_duplicate"] == 1].index, inplace=True, index=False )
+        
+    '''
+    Since, standard_value is 0% missing data. So we dont need
+    special imputation techniques for values
     
-    def IC50Standardization(self, dataframe): 
-        pass   
-
-    def IC50toPIC50Conv(self, dataframe = molecule_standardization) -> pd.DataFrame: 
+    We will add in the columns to drop program in the null_column_handler part 
+    '''
+    
+    def IC50_units_standardization(self, dataframe) -> pd.DataFrame :
+        
+        units = ["10'5pM", "10'6pM", "10'3pM", "nM"]
+        
+        dataframe = dataframe[dataframe["standard_units"].isin(units)].copy()
         
         conditions = [
-            (dataframe["type"] == "IC50") & (dataframe["value"] < 0),
-            (dataframe["type"] == "Log IC50"),
-            (dataframe["type"] == "pIC50"), 
-            (dataframe["type"] == "Log IC50(nM)")
+
+            (dataframe["standard_units"] == "10'5pM"), 
+            (dataframe["standard_units"] == "10'6pM"),
+            (dataframe["standard_units"] == "10'3pM"),
+            (dataframe["standard_units"] == "nM")
+        ]
+        
+        choices = [
+            #pico-molar is thousand times smaller than nano-molar (10 ** 3) and hence conversion factor will be 10 ** -3
+            (dataframe["standard_value"] * 100),
+            (dataframe["standard_value"] * 1000),
+            (dataframe["standard_value"] * 1), 
+            (dataframe["standard_value"] * 1) 
+            
+        ]
+        
+        dataframe["IC50"] = np.select(conditions, choices, default = dataframe["standard_value"])
+        
+        dataframe["standard_units"] = "nM"
+        
+          
+    def IC50_to_PIC50Conv(self, dataframe = molecule_standardization) -> pd.DataFrame: 
+        
+        conditions = [
+            (dataframe["standard_type"] == "IC50") & (dataframe["standard_value"] < 0),
+            (dataframe["standard_type"] == "Log IC50"),
+            (dataframe["standard_type"] == "pIC50"), 
+            (dataframe["standard_type"] == "Log IC50(nM)")
         ]
         choices = [
-            -1 * np.log10(dataframe["value"] * 10 ** -9),
-            -1 * dataframe["value"],
-            dataframe["value"],
-            dataframe["value"]
+            -1 * np.log10(dataframe["standard_value"] * 10 ** -9),
+            -1 * dataframe["standard_value"],
+            dataframe["standard_value"],
+            dataframe["standard_value"]
         ]
         
         dataframe["PIC50"] = np.select(conditions, choices, default=dataframe["value"])
         
-        return dataframe
+        return dataframe        
+        
+    def relationalvalue(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+        
+        #dropping in-efficient medications > greater than the highest number
+        #thermodynamic hard-limit of 10,000
+        
+        safe_relations = dataframe["standard_relation"] != ">"
+        valid_negatives = (dataframe["standard_relation"] == ">") & (dataframe["standard_value"] >= 10000)
+        
+        return dataframe[safe_relations | valid_negatives].copy()
+    
+
+class DataManipulation:
+    def __init__(self):
+        pass
+    
+    
+    
     
 if __name__ == "__main__":
     
