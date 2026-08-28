@@ -16,10 +16,12 @@ Dropping technique:
 
 3. Standardize the units and relationship modelling -- Done
 1. Generate pIC50 for all the molecules -- Done
-2. Calculate variance for all of them -- pIC50 check 
 4. Ligand efficency - de-dictionary and small reasearch 
+2. Calculate variance for all of them -- pIC50 check 
 5. Final column drop off 
 6. Encoding of features
+7. Choosing the right model for our specific case 
+
 
 '''
 print(reader["standard_units"].unique())

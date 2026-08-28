@@ -8,6 +8,7 @@ import duckdb
 import pandas as pd
 from rdkit import Chem 
 from rdkit.Chem.SaltRemover import SaltRemover
+from scipy.stats import mean_absolute_deviation
 
 
 def data_retrieval_desc(target_name: str) -> pd.DataFrame:
@@ -217,9 +218,10 @@ class DataCleaning:
         
         return inchikey
         
-        #NOTE : INCHI and INCHI key -> INCHI is too BIG and hence INCHI key we will be using for database wide comparisons and analysis
+        #NOTE : INCHI and INCHI key -> INCHI is too BIG and hence INCHI key we will be using for database wide comparisons and analysis        
         
-            
+
+        
     def null_and_columnhandler(self, path: Path) -> Path:
         
         dataset_clean = self.loading_csv(path)
@@ -228,7 +230,8 @@ class DataCleaning:
         
         cols_to_drop = ["qudt_units", "uo_units", "toid", "document_chembl_id", "_journal", "_year", 
                         "assay_descriptions", "activity_comment", "upper_value", 
-                        "molecule_pref_name", "type", "units", "value","document_journal", "document_year"]
+                        "molecule_pref_name", "type", "units", "value","document_journal", "document_year", 
+                        "assay_description", "activity_id", "activity_properties", "ligand_efficiency" ]
         
         existing_cols_to_drop = [col for col in cols_to_drop if col in dataset_clean.columns]
         
@@ -243,7 +246,7 @@ class DataCleaning:
                                       "Values appear to be an order of magnitude different from previously reported, so units may be incorrect"]
         
         mask_1 = dataset_clean["data_validity_comment"].isin(targets_data_validity_comment)
-        mask_2 = dataset_clean["data_validity_description"].isin(targets_data_validity_desc)
+        mask_2 = dataset_clean["data_validity _description"].isin(targets_data_validity_desc)
         
         combined_bad_rows = mask_1 | mask_2
         rows_to_drop = dataset_clean[combined_bad_rows].index
@@ -260,7 +263,7 @@ class DataCleaning:
         return output_path
 
     
-    def molecule_standardization(self, cleaned_csv_path: Path) -> pd.DataFrame:
+    def InChIstandardization(self, cleaned_csv_path: Path = null_and_columnhandler) -> pd.DataFrame:
         # Notice how there is NO call to null_and_columnhandler here anymore!
         # This function strictly assumes it is receiving an already cleaned file.
         
@@ -278,11 +281,12 @@ class DataCleaning:
         return df  
         
     
-    def basic_duplicate_resolution(self, csv_path):
-        
-        dataframe = pd.read_csv(csv_path)
+    def basic_duplicate_resolution(self, dataframe = InChIstandardization):
         #clearing already flagged duplicates --> Toll gate analogy
-        dataframe.drop(dataframe[dataframe["suspected_duplicate"] == 1].index, inplace=True, index=False )
+        dataframe = dataframe[dataframe["suspected_duplicate"] != 1].copy()
+        
+        return dataframe
+
         
     '''
     Since, standard_value is 0% missing data. So we dont need
@@ -291,7 +295,7 @@ class DataCleaning:
     We will add in the columns to drop program in the null_column_handler part 
     '''
     
-    def IC50_units_standardization(self, dataframe) -> pd.DataFrame :
+    def IC50_units_standardization(self, dataframe = basic_duplicate_resolution) -> pd.DataFrame :
         
         units = ["10'5pM", "10'6pM", "10'3pM", "nM"]
         
@@ -315,11 +319,11 @@ class DataCleaning:
         ]
         
         dataframe["IC50"] = np.select(conditions, choices, default = dataframe["standard_value"])
-        
         dataframe["standard_units"] = "nM"
-        
+               
+        return dataframe
           
-    def IC50_to_PIC50Conv(self, dataframe = molecule_standardization) -> pd.DataFrame: 
+    def IC50_to_PIC50Conv(self, dataframe =  IC50_units_standardization) -> pd.DataFrame: 
         
         conditions = [
             (dataframe["standard_type"] == "IC50") & (dataframe["standard_value"] < 0),
@@ -334,11 +338,31 @@ class DataCleaning:
             dataframe["standard_value"]
         ]
         
-        dataframe["PIC50"] = np.select(conditions, choices, default=dataframe["value"])
+        dataframe["PIC50"] = np.select(conditions, choices, default=dataframe["standard_value"])
         
         return dataframe        
         
-    def relationalvalue(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+    def InChI_based_duplicate_res(self, dataframe : pd.DataFrame = IC50_to_PIC50Conv) -> pd.DataFrame:
+        
+        #now there are non-distinct InChI values, they might be from multiple tests so here we address those specific set of values 
+        #mean-absolute-deviation
+        
+        df = dataframe.copy()
+        df["median"] = df.groupby("InChIkey")["PIC50"].transform("median")
+        df["compared_median"] = abs(df["median"] - df["PIC50"])
+        
+        df["group_MAD"] = df.groupby("InChIkey")["compared_median"].transform("median")
+        
+        mad_threshold: float = 1.0
+        cleaned_df = df[df["group_MAD"] <= mad_threshold].copy()
+        cleaned_df["PIC50"] = cleaned_df["median"]
+        
+        final_df = cleaned_df.drop_duplicates(subset=["InChIkey", "cleaned_smiles"]).copy()
+        final_df = final_df.drop(columns = ["median", "compared_median", "group_MAD"])
+        
+        return final_df
+
+    def relationalvalue(self, dataframe: pd.DataFrame = InChI_based_duplicate_res) -> pd.DataFrame:
         
         #dropping in-efficient medications > greater than the highest number
         #thermodynamic hard-limit of 10,000
@@ -347,14 +371,48 @@ class DataCleaning:
         valid_negatives = (dataframe["standard_relation"] == ">") & (dataframe["standard_value"] >= 10000)
         
         return dataframe[safe_relations | valid_negatives].copy()
-    
 
-class DataManipulation:
+
+class DataEng:
+    
+    def __init__(self):
+        pass 
+    
+    def moragan_fingerprinting(self):
+        pass 
+    
+    def variance_based_dropping(self):
+        pass 
+
+class DataEncoding:
+    
     def __init__(self):
         pass
     
+class Model:
     
+    def __init__(self):
+        pass
+
+class Evaluation:
     
+    def __init__(self):
+        pass
+    
+class Explainability:
+    
+    def __init__(self):
+        pass
+    
+class Representation:
+    
+    def __init__(self):
+        pass
+    
+class modelserving:
+    
+    def __init__(self):
+        pass
     
 if __name__ == "__main__":
     
@@ -380,167 +438,4 @@ if __name__ == "__main__":
     dc = DataCleaning(path=csv_path)
     clean_path_output = dc.null_and_columnhandler(path=csv_path)
     dc.molecule_standardization(cleaned_csv_path=clean_path_output)
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     
