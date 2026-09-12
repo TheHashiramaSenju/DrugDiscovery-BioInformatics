@@ -171,12 +171,14 @@ class DataCleaning:
         return None
     
     def loading_csv(self, path: Path) -> pd.DataFrame:
+        
         print(f"\nLoading and parsing CSV file: {path.name}")
         dataset_clean = pd.read_csv(
             path, 
             engine='python', 
             on_bad_lines=self.catch_bad_row
         ) 
+        
         if self.mismatch:
             print(f"Skipped {len(self.mismatch)} corrupted/mismatched rows.")
         return dataset_clean 
@@ -238,7 +240,7 @@ class DataCleaning:
         cols_to_drop = ["qudt_units", "uo_units", "toid", "document_chembl_id", "_journal", "_year", 
                         "assay_descriptions", "activity_comment", "upper_value", 
                         "molecule_pref_name", "type", "units", "value","document_journal", "document_year", 
-                        "assay_description", "activity_id", "activity_properties", "ligand_efficiency" ]
+                        "assay_description", "activity_id", "activity_properties", "ligand_efficiency" ] #added "assay_chembl_id", "target_tax_id" finally here
         
         existing_cols_to_drop = [col for col in cols_to_drop if col in dataset_clean.columns]
         
@@ -252,15 +254,22 @@ class DataCleaning:
         targets_data_validity_desc = ["Values for this activity type are unusually large/small, so may not be accurate", 
                                       "Values appear to be an order of magnitude different from previously reported, so units may be incorrect"]
         
-        mask_1 = dataset_clean["data_validity_comment"].isin(targets_data_validity_comment)
-        mask_2 = dataset_clean["data_validity_description"].isin(targets_data_validity_desc)
+        # These fields are not guaranteed to be present in every ChEMBL export.
+        #REFACTORED - the .get() and fallback options 
+        validity_comment = dataset_clean.get("data_validity_comment", pd.Series(index=dataset_clean.index, dtype=object)) #REFACTORED - .index for the series to match the dataset_clean index, ensuring proper alignment for boolean masking.
+        validity_description = dataset_clean.get("data_validity_description", pd.Series(index=dataset_clean.index, dtype=object)) #just an fallback we are not going to join this anywhere. so that the rows to drop wont be sitting there with an error
+        mask_1 = validity_comment.isin(targets_data_validity_comment)
+        mask_2 = validity_description.isin(targets_data_validity_desc)
         
         combined_bad_rows = mask_1 | mask_2        
     
         rows_to_drop = dataset_clean[combined_bad_rows].index
         dataset_clean = dataset_clean.drop(rows_to_drop, axis = 0)
         
-        dataset_clean = dataset_clean.drop(columns=["data_validity_comment", "data_validity_description"], axis=1)
+        dataset_clean = dataset_clean.drop(
+            columns=["data_validity_comment", "data_validity_description"],
+            errors="ignore",
+        )
         
         clean_filename = self.get_clean_filename()
         output_path = path.parent / f"{clean_filename}_cleaned.csv"
@@ -272,10 +281,14 @@ class DataCleaning:
 
     
     def InChIstandardization(self) -> pd.DataFrame:
-        # Notice how there is NO call to null_and_columnhandler here anymore!
-        # This function strictly assumes it is receiving an already cleaned file.
+        """Remove salts and add stable molecular identifiers to the cleaned data."""
+        
         cleaned_csv_path: Path = self.null_and_columnhandler(self.path)
         df = pd.read_csv(cleaned_csv_path)
+        
+        #remember to add validation and pre-check before anything 
+        if "canonical_smiles" not in df.columns:
+            raise KeyError("Input CSV must contain a 'canonical_smiles' column.")
         df["cleaned_smiles"] = df["canonical_smiles"].apply(DataCleaning.stip_salt)
         
         df.drop("canonical_smiles", axis=1, inplace=True)
@@ -290,10 +303,10 @@ class DataCleaning:
         
     
     def basic_duplicate_resolution(self) ->pd.DataFrame:
-        
         dataframe = self.InChIstandardization()
-        #clearing already flagged duplicates --> Toll gate analogy
-        dataframe = dataframe[dataframe["potential_duplicate"] != 1].copy()
+        # Remove records already flagged as duplicates when that metadata exists.
+        if "potential_duplicate" in dataframe.columns:
+            dataframe = dataframe[dataframe["potential_duplicate"] != 1].copy()
         
         return dataframe
 
@@ -312,6 +325,7 @@ class DataCleaning:
         
         dataframe = dataframe[dataframe["standard_units"].isin(units)].copy()
         
+        # pIC50 must be calculated from the normalized nM concentration.
         conditions = [
 
             (dataframe["standard_units"] == "10'5pM"), 
@@ -339,13 +353,13 @@ class DataCleaning:
         dataframe = self.IC50_units_standardization()
         
         conditions = [
-            (dataframe["standard_type"] == "IC50") & (dataframe["standard_value"] > 0),
+            (dataframe["standard_type"] == "IC50") & (dataframe["IC50"] > 0),
             (dataframe["standard_type"] == "Log IC50"),
             (dataframe["standard_type"] == "pIC50"), 
             (dataframe["standard_type"] == "Log IC50(nM)")
         ]
         choices = [
-            -1 * np.log10(dataframe["standard_value"] * 10 ** -9),
+            -1 * np.log10(dataframe["IC50"] * 10 ** -9),
             -1 * dataframe["standard_value"],
             dataframe["standard_value"],
             -9 + dataframe["standard_value"]
@@ -377,7 +391,7 @@ class DataCleaning:
         
         return final_df
 
-    def relationalvalue(self) -> pd.DataFrame:
+    def relationalvalue(self) -> Path:
         
         #dropping in-efficient medications > greater than the highest number
         #thermodynamic hard-limit of 10,000
@@ -391,7 +405,10 @@ class DataCleaning:
         clean_filename = self.get_clean_filename()
         output_path = self.path.parent / f"{clean_filename}_cleaned.csv"
         
-        dataframe = dataframe.drop(columns = ["pchembl_value", "potential_duplicate", "relation"])
+        dataframe = dataframe.drop(
+            columns=["pchembl_value", "potential_duplicate", "relation"],
+            errors="ignore",
+        )
         dataframe.to_csv(output_path, index=False)
         print(f"Cleaned CSV saved successfully: {output_path}")
         
@@ -402,17 +419,27 @@ class DataEng:
     
     def __init__(self, path:Path):
         self.path = Path(path) if isinstance(path, str) else path
-        self.df = None
+        if not self.path.exists():
+            raise FileNotFoundError(f"Feature CSV file not found: {self.path}")
+
+        # Load once and retain the original row index for every later operation.
+        self.df = pd.read_csv(self.path)
+        self.filename = self.path.name if self.path.exists() else "unknown_file"
+        
+        if "cleaned_smiles" not in self.df.columns:
+            raise KeyError("Feature CSV must contain a 'cleaned_smiles' column.")
     
     @staticmethod
     def morgan_fingerprinting_s_method(smiles_string: str, radius: int = 2, nBits: int = 2) -> np.ndarray:       
-        
+        if pd.isna(smiles_string):
+            return np.zeros(nBits, dtype=np.uint8)
+
         mol = Chem.MolFromSmiles(smiles_string)
         if mol is None:
-            return np.zeros(nBits)
+            return np.zeros(nBits, dtype=np.uint8)
         
         finger_printing = AllChem.GetMorganFingerprintAsBitVect(mol, radius=radius, nBits=nBits)
-        return np.array(finger_printing)
+        return np.asarray(finger_printing, dtype=np.uint8)
     
     @staticmethod
     def mscl(smiles):
@@ -421,36 +448,65 @@ class DataEng:
             return None
         
         mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return None
         
         scaffold = MurckoScaffold.GetScaffoldForMol(mol)
         scaffold_smiles = Chem.MolToSmiles(scaffold)
         
         return scaffold_smiles
+    
+    
+    def finaldrop(self):
         
+        final = DataCleaning.get_clean_filename()
+        pipeline_path = self.path.parent/final
+        
+        columns_to_drop = ["action_type", "target_pref_name", "target_tax_id", "bao_endpoint", 
+                           "assay_chembl_id", "target_chembl_id", "record_id", "molecule_chembl_id", 
+                           "parent_molecule_chembl_id", "bao_label", "standard_type", "standard_units", "standard_flag"]
+        
+        self.df = self.df.drop(columns=columns_to_drop)
+        
+        self.df.to_csv(f"{pipeline_path}_pipeline", index=False)
+        
+        return self.df
+    
         
     def morgan_fingerprinting(self):
+        """Create indexed Morgan fingerprints without discarding row identity."""
         
-        self.df = pd.read_csv(self.path)
+        self.df = self.finaldrop()
         self.df['morgan_fp'] = self.df["cleaned_smiles"].apply(
             lambda x: self.morgan_fingerprinting_s_method(x, radius=2, nBits=1024)
         )
+        return pd.DataFrame(
+            np.vstack(self.df["morgan_fp"].to_numpy()),
+            index=self.df.index,
+        )
         
-        X_matrix = np.vstack(self.df["morgan_fp"].values)
-        return X_matrix
+    def scaffold(self):
+        """Split whole scaffold groups while preserving source row indexes."""
         
-    def scaffold(self, y_vector = None):
-        
+        y_vector = self.df["PIC50"]
+        if y_vector is None:
+            raise ValueError("y_vector is required to create a supervised split.")
+
         X_matrix = self.morgan_fingerprinting()
-        
-        df = pd.read_csv(self.path)
+        y_vector = np.asarray(y_vector)
+        if len(y_vector) != len(self.df):
+            raise ValueError("y_vector must have one value for every CSV row.")
+
+        df = self.df[["cleaned_smiles"]].copy()
         df["scaffold"] = df["cleaned_smiles"].apply(DataEng.mscl)
         
         #now giving meaning using InChIkey
         
         df["Scaffold_InChI"] = df["scaffold"].apply(DataCleaning.InChIKeyConversion)
         
-        groups = df.groupby("Scaffold_InChI").groups
+        groups = df.groupby("Scaffold_InChI", dropna=False).groups
         
+        #so here the entire index is preserved for ordering and re-ordering. 
         sorted_keys = sorted(groups.keys(), key = lambda k : len(groups[k]), reverse = True) #ascending or descenfing comes fromthe lamda here actually and we reverse fo rbg uckets to be on the top
         
         target_train_size = int(0.8 * len(df))
@@ -467,10 +523,9 @@ class DataEng:
             else:
                 test_indices.extend(row_numbers)
                 
-        X_train = X_matrix[train_indices]
+        X_train = X_matrix.loc[train_indices]
         y_train = y_vector[train_indices]
-        
-        X_test = X_matrix[test_indices]
+        X_test = X_matrix.loc[test_indices]
         y_test = y_vector[test_indices]
         
         return X_train, y_train, X_test, y_test
@@ -478,21 +533,28 @@ class DataEng:
     
     def variance_thresholding(self):
         
+        # Fit on training data only; the test set receives the learned mask.
         X_train, y_train, X_test, y_test = self.scaffold()
         
         thresholder = VarianceThreshold(threshold=0.0475) #reasoning in PDF in a more cleaner format
         
         X_train_new = thresholder.fit_transform(X_train)
-        X_test_new = thresholder.fit_transform(X_test)
+        X_test_new = thresholder.transform(X_test)
         
         updated_masks = thresholder.get_support()
         
-        return X_train_new, X_test_new, updated_masks
+        return (
+            pd.DataFrame(X_train_new, index=X_train.index),
+            pd.DataFrame(X_test_new, index=X_test.index),
+            y_train,
+            y_test,
+            updated_masks
+        )
         
         
     def correlation_handling(self, threshold = 0.90):
-        
-        X_train, X_test, updated_masks = self.variance_thresholding()
+        """Remove correlated columns using correlations learned from training data."""
+        X_train, X_test, y_train, y_test, updated_masks = self.variance_thresholding()
         #drops one of them to prevent *Impoortance Dilution* in Random-Forests
         
         df_train = pd.DataFrame(X_train)
@@ -510,15 +572,15 @@ class DataEng:
         
         to_drop = [column for column in upper_triangle.columns if any(upper_triangle[column] > threshold)]
         
-        X_train_clean = df_train.drop(columns=to_drop).values
-        X_test_clean = df_test.drop(columns=to_drop).values
+        X_train_clean = df_train.drop(columns=to_drop)
+        X_test_clean = df_test.drop(columns=to_drop)
         
-        return X_train_clean, X_test_clean
+        return X_train_clean, X_test_clean, y_train, y_test
     
     
-    def modelledReduction(self, y_train):
-    
-        X_train, X_test = self.correlation_handling()
+    def modelledReduction(self):
+        """Select features using a forest fitted only on training targets."""
+        X_train, X_test, y_train, y_test = self.correlation_handling()
         rf = RandomForestRegressor(n_estimators=100, random_state = 50, n_jobs=-1 )
         filterer = SelectFromModel(rf, threshold="mean")
         
@@ -533,10 +595,10 @@ class DataEng:
         X_train_final = pd.DataFrame(X_train_raw, columns = surviving_names, index = X_train.index) #here use stencil analogy to row level data manipulation 
         X_test_final = pd.DataFrame(X_test_raw, columns = surviving_names, index = X_test.index)
         
-        return X_train_final, X_test_final
+        return X_train_final, X_test_final, y_test,  y_train
     
-    def column_addition(self, y_train):
-        
+    def column_addition(self):
+        """Reattach selected features to the original rows by index."""
         # we have to add back in such a way that the scaffold data does not inherently affect the dimensions here, but here it does not matter 
         
         '''
@@ -544,35 +606,115 @@ class DataEng:
         we are some how gonna exterminate the rows that did not survive entirely essentially deleting a dimension. So we can use masking to 
         make the boolean match and work (stencil) for matching dimensions, else use ~ signs or .iloc with truth labels whcih essentially by itself is masking
         
+        New learning - Numpy arrays erases pandas' memory layout and hence to perform vector operations we have to acutally keep datadeames as dataframes itself. 
+        .values and all destroy the memory -- any (.) operator will actually kill it. So, we must do preservation of indexes 
+        
         '''
-        d1, d2 = self.modelledReduction(y_train)
+        
+        d1, d2, _ = self.modelledReduction()
+        
         joinee = pd.concat([d1, d2], axis = 0)
-        indexes_to_keep = joinee.index.intersection(self.df.index)
-        joinee = joinee.loc[indexes_to_keep]
-        scaffold_df = self.df.drop(columns=d1.columns, errors='ignore')
-        df = pd.concat([scaffold_df, joinee], axis = 1)
+        merger = self.df.loc[joinee.index]
+        final_df = pd.concat([merger, joinee], axis = 1)
+        
         # here we dont want loc based index shuffle since we did not do random shuffling we just did scaffolding
-        return df 
-    
-    
-    def encoding(self):
-        
-        encoder = LabelEncoder()
-        self.df["assay_type"] = encoder.fit_transform(self.df["assay_type"])
-        
-        return self.df 
-    
-    
-    
-    
+        return final_df
+  
+      
 class Model:
+
+    def __init__(self):
+        
+        self.df = DataEng.column_addition()
+        
     
+    def scaffold_based_split(self):
+        
+        groups = self.df.groupby("Scaffold_InChI", dropna=False).groups
+        
+        #so here the entire index is preserved for ordering and re-ordering. 
+        sorted_keys = sorted(groups.keys(), key = lambda k : len(groups[k]), reverse = True) #ascending or descenfing comes fromthe lamda here actually and we reverse fo rbg uckets to be on the top
+        
+        target_train_size = int(0.8 * len(self.df))
+        train_indices = []
+        test_indices = []
+        
+        for scaffold in sorted_keys:
+            
+            row_numbers = groups[scaffold] #handling irregular sizing here
+            
+            if len(train_indices) < target_train_size:
+                train_indices.extend(row_numbers)
+            
+            else:
+                test_indices.extend(row_numbers)
+        
+        
+        X_matrix = self.df[~self.df["PIC50"]].copy  
+        y_vector = self.df["PIC50"].copy 
+        
+        X_train = X_matrix.loc[train_indices]
+        y_train = y_vector[train_indices]
+        X_test = X_matrix.loc[test_indices]
+        y_test = y_vector[test_indices]
+        
+        return X_train, y_train, X_test, y_test
+
+    def RFmodela(self):
+        """
+        Random Forest using Morgan fingerprints only.
+        """
+        pass
+
+    def RFmodelb(self):
+        """
+        Random Forest using RDKit molecular descriptors only.
+        """
+        pass
+
+    def RFmodelc(self):
+        """
+        Random Forest using Morgan fingerprints + RDKit descriptors.
+        """
+        pass
+
+
+class Validation:
+
     def __init__(self):
         pass
 
-class Evaluation:
-    
+    def random_split(self):
+        pass
+
+    def scaffold_split(self):
+        pass
+
+    def group_split(self):
+        pass
+
+    def external_validation(self):
+        pass
+
+
+class AblationStudies:
+
     def __init__(self):
+        pass
+
+    def full_model(self):
+        pass
+
+    def fingerprint_only(self):
+        pass
+
+    def descriptors_only(self):
+        pass
+
+    def assay_context(self):
+        pass
+
+    def bao_context(self):
         pass
     
 class Explainability:
@@ -614,6 +756,8 @@ if __name__ == "__main__":
     print(preview_df)
     
     dc = DataCleaning(path=csv_path)
-    clean_path_output = dc.null_and_columnhandler(path=csv_path)
-    #dc.InChIstandardization()
-    dc.relationalvalue()
+    clean_path_output = dc.relationalvalue()
+    print(f"Final cleaned dataset: {clean_path_output}")
+    de = DataEng(path = clean_path_output)
+    
+    
